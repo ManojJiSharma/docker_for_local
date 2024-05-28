@@ -6,23 +6,60 @@ on:
         - master 
 
 jobs: 
-    matic-setup:
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout sources
-          uses: actions/checkout@v4
-        # - name: clone matic-cli
-        #   run: git clone https://github.com/maticnetwork/matic-cli.git
+   matic-setup:
+    strategy:
+      matrix:
+        crate: [matic-cli]
+    runs-on: ubuntu-latest
+    steps:
+      - name: clone matic-cli and build
+        run: |
+          docker run --name builder -it manojanalog/builder:v2.0.0 sh -c "
+          cd /builds && 
+          rm -rf matic-cli &&
+          git clone https://github.com/maticnetwork/matic-cli.git &&
+          cd matic-cli &&
+          yarn &&
+          cargo install svm-rs &&
+          svm install 0.5.17 &&
+          svm use 0.5.17 &&
+          mkdir devnet &&
+          cd devnet &&
+          # cp ../../../matic-cli-config.yml ./ &&
+          ../bin/matic-cli.js setup devnet --config ../configs/devnet/docker-setup-config.yaml"
 
-        #   - name: Checkout sources
-    #     uses: actions/checkout@v4
-  
-    #   - name: Install rust toolchain
-    #     uses: actions-rs/toolchain@v1
-    #     with:
-    #       toolchain: stable
-    #       components: rustfmt, clippy
+          docker cp builder:/builds ${{ github.workspace }}
+          docker stop builder && docker rm builder
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+          
+          echo "nvm install sufffccc"
+          cd builds/matic-cli/devnet
+          bash docker-ganache-start.sh
+          bash docker-heimdall-start-all.sh
+          bash docker-bor-setup.sh
+          bash docker-bor-start-all.sh
+          
+          sleep 120
 
+          set -x
 
-    # test-client:
-    #     runs-on: ubuntu-latest
+          # private key to deploy contracts
+          export PRIVATE_KEY=0xf5553ef9646693a7a7de5f4cb0c97e1d9da7aa31acde58e3b3456755667d2d92
+          export MNEMONIC=0xf5553ef9646693a7a7de5f4cb0c97e1d9da7aa31acde58e3b3456755667d2d92
+
+          # export heimdall id
+          export HEIMDALL_ID=heimdall-4052
+
+          # cd matic contracts repo
+          cd code/contracts
+
+          # bor contracts are deployed on child chain
+          npm run truffle:migrate:dev:bor -- --reset -f 5 --to 5 --compile-none
+
+          
+          # bash ganache-deployment-bor.sh
+          # bash ganache-deployment-sync.sh
+          
